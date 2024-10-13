@@ -1,4 +1,4 @@
-name: Build Docker Image for Tag 1.0.8
+name: Build Docker Image
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ jobs:
       - name: Checkout code at tag 1.0.8
         uses: actions/checkout@v4
         with:
-          ref: '1.0.10' # 指定检出 1.0.8 的 tag
+          ref: '1.0.8' # 指定检出 1.0.8 的 tag
 
       - name: Build & push Docker image
         uses: mr-smithers-excellent/docker-build-push@v6
