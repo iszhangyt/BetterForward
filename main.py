@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import queue
+import random
 import re
 import signal
 import sqlite3
@@ -70,6 +71,7 @@ class TGBot:
         self.bot.message_handler(commands=["unban"])(self.unban_user)
         self.bot.message_handler(commands=["terminate"])(self.handle_terminate)
         self.bot.message_handler(commands=["delete"])(self.delete_message)
+        self.bot.message_handler(commands=["verify"])(self.handle_verify)
         self.bot.message_handler(func=lambda m: True, content_types=["photo", "text", "sticker", "video", "document"])(
             self.push_messages)
         self.bot.callback_query_handler(func=lambda call: True)(self.callback_query)
@@ -88,8 +90,10 @@ class TGBot:
             types.BotCommand("unban", _("Unban a user")),
             types.BotCommand("delete", _("Delete a message")),
             types.BotCommand("terminate", _("Terminate a thread")),
+            types.BotCommand("verify", _("Set verified status")),
         ], scope=types.BotCommandScopeChat(self.group_id))
         self.cache = Cache()
+        self.load_settings()
         self.check_permission()
         self.message_queue = queue.Queue()
         self.message_processor = threading.Thread(target=self.process_messages)
@@ -124,6 +128,48 @@ class TGBot:
                 logger.error(_("Failed to upgrade database"))
                 print_exc()
                 exit(1)
+
+    def load_settings(self):
+        # Load settings
+        with sqlite3.connect(self.db_path) as db:
+            db_cursor = db.cursor()
+            db_cursor.execute("SELECT key, value FROM settings")
+            for key, value in db_cursor.fetchall():
+                self.cache.set(f"setting_{key}", value)
+
+    def generate_captcha(self, user_id: int, type="math"):
+        match type:
+            case "math":
+                num1 = random.randint(1, 10)
+                num2 = random.randint(1, 10)
+                answer = num1 + num2
+                self.cache.set(f"captcha_{user_id}", answer, 300)
+                return f"{num1} + {num2} = ?"
+            case "button":
+                markup = types.InlineKeyboardMarkup()
+                markup.add(types.InlineKeyboardButton("Click to verify", callback_data=json.dumps(
+                    {"action": "verify_button", "user_id": user_id})))
+                self.bot.send_message(user_id, _("Please click the button to verify."), reply_markup=markup)
+            case _:
+                raise ValueError(_("Invalid captcha setting"))
+
+    def handle_button_captcha(self, call: types.CallbackQuery):
+        data = json.loads(call.data)
+        if data.get("action") == "verify_button":
+            user_id = data.get("user_id")
+            if user_id:
+                self.cache.set(f"verified_{user_id}", True, 1800)  # 设置用户为已验证
+                self.bot.answer_callback_query(call.id)
+                self.bot.send_message(user_id, _("Verification successful, you can now send messages"))
+                self.bot.delete_message(call.message.chat.id, call.message.message_id)
+                with sqlite3.connect(self.db_path) as db:
+                    db_cursor = db.cursor()
+                    db_cursor.execute("INSERT INTO verified_users (user_id) VALUES (?)", (user_id,))
+                    db.commit()
+                self.cache.set(f"verified_{user_id}", True, 1800)
+            else:
+                self.bot.answer_callback_query(call.id)
+                self.bot.send_message(call.message.chat.id, _("Invalid user ID"))
 
     # Get thread_id to terminate when needed
     def terminate_thread(self, thread_id=None, user_id=None):
@@ -216,6 +262,50 @@ class TGBot:
                 logger.info(
                     _("Received message from {}, content: {}, type: {}").format(message.from_user.id, message.text,
                                                                                 message.content_type))
+                if self.cache.get("setting_captcha") != "disable":
+                    # Captcha Handler
+                    if (captcha := self.cache.get(f"captcha_{message.from_user.id}")) is not None:
+                        if message.text != str(captcha):
+                            logger.info(_("User {} entered an incorrect answer").format(message.from_user.id))
+                            self.bot.send_message(message.chat.id, _("The answer is incorrect, please try again"))
+                            return
+                        logger.info(_("User {} passed the captcha").format(message.from_user.id))
+                        self.bot.send_message(message.chat.id, _("Verification successful, you can now send messages"))
+                        curser.execute("INSERT INTO verified_users (user_id) VALUES (?)",
+                                       (message.from_user.id,))
+                        self.cache.delete(f"captcha_{message.from_user.id}")
+                        self.cache.set(f"verified_{message.from_user.id}", True, 1800)
+                        return
+
+                    # Check if the user is verified
+                    verified = self.cache.get(f"verified_{message.from_user.id}")
+                    if verified is None:
+                        result = curser.execute("SELECT 1 FROM verified_users WHERE user_id = ? LIMIT 1",
+                                                (message.from_user.id,))
+                        if result.fetchone() is not None:
+                            verified = True
+                        else:
+                            verified = False
+
+                    if not verified:
+                        logger.info(_("User {} is not verified").format(message.from_user.id))
+                        match self.cache.get("setting_captcha"):
+                            case "button":
+                                self.generate_captcha(message.from_user.id, self.cache.get("setting_captcha"))
+                                return
+                            case "math":
+                                captcha = self.generate_captcha(message.from_user.id, self.cache.get("setting_captcha"))
+                                self.bot.send_message(message.chat.id,
+                                                      _("Captcha is enabled. Please solve the following question and send the result directly\n") + captcha)
+                                return
+                            case _:
+                                logger.error(_("Invalid captcha setting"))
+                                self.bot.send_message(self.group_id,
+                                                      _("Invalid captcha setting") + f": {self.cache.get('setting_captcha')}")
+                                return
+                    else:
+                        self.cache.set(f"verified_{message.from_user.id}", verified, 1800)
+
                 # Check if the user is banned
                 if (result := curser.execute("SELECT ban FROM topics WHERE user_id = ? LIMIT 1",
                                              (message.from_user.id,)).fetchone()) and result[0] == 1:
@@ -438,7 +528,7 @@ class TGBot:
         # 选择是否是正则表达式
         if not self.check_valid_chat(message):
             return
-        if message.text == "/cancel":
+        if isinstance(message.text, str) and message.text == "/cancel":
             self.bot.send_message(self.group_id, _("Operation cancelled"))
             return
         if message.content_type != "text":
@@ -461,7 +551,7 @@ class TGBot:
     def add_auto_response_value(self, message: Message):
         if not self.check_valid_chat(message):
             return
-        if message.text == "/cancel":
+        if isinstance(message.text, str) and message.text == "/cancel":
             self.bot.send_message(self.group_id, _("Operation cancelled"))
             return
         if self.cache.get("auto_response_regex") is True:
@@ -482,7 +572,7 @@ class TGBot:
     def add_auto_response_topic_action(self, message: Message):
         if not self.check_valid_chat(message):
             return
-        if message.text == "/cancel":
+        if isinstance(message.text, str) and message.text == "/cancel":
             self.bot.send_message(self.group_id, _("Operation cancelled"))
             self.cache.delete("auto_response_key")
             return
@@ -560,6 +650,10 @@ class TGBot:
                                               callback_data=json.dumps({"action": "default_msg"})))
         markup.add(types.InlineKeyboardButton("⛔" + _("Banned Users"),
                                               callback_data=json.dumps({"action": "ban_user"})))
+        markup.add(types.InlineKeyboardButton("🔒" + _("Captcha Settings"),
+                                              callback_data=json.dumps({"action": "captcha_settings"})))
+        markup.add(types.InlineKeyboardButton("📢" + _("Broadcast Message"),
+                                              callback_data=json.dumps({"action": "broadcast_message"})))  # 新增按钮
         if edit:
             self.bot.edit_message_text(_("Menu"), message.chat.id, message.message_id, reply_markup=markup)
         else:
@@ -687,6 +781,8 @@ class TGBot:
         with sqlite3.connect(self.db_path) as db:
             db_cursor = db.cursor()
             db_cursor.execute("UPDATE topics SET ban = 1 WHERE thread_id = ?", (message.message_thread_id,))
+            # Remove user from verified list
+            db_cursor.execute("DELETE FROM verified_users WHERE user_id = ?", (message.from_user.id,))
             db.commit()
         self.bot.send_message(self.group_id, _("User banned"), message_thread_id=message.message_thread_id)
         close_forum_topic(chat_id=self.group_id, message_thread_id=message.message_thread_id, token=self.bot.token)
@@ -803,6 +899,9 @@ class TGBot:
         self.bot.register_next_step_handler(msg, self.edit_default_msg_handle)
 
     def edit_default_msg_handle(self, message: Message):
+        if not isinstance(message.text, str):
+            self.bot.send_message(self.group_id, _("Invalid input"))
+            return
         if message.text == "/cancel":
             self.bot.send_message(self.group_id, _("Operation cancelled"))
             return
@@ -819,13 +918,21 @@ class TGBot:
         if call.data == "null":
             logger.error(_("Invalid callback data received"))
             return
-        if call.message.chat.id != self.group_id or call.message.message_thread_id is not None:
-            return
         try:
             data = json.loads(call.data)
             action = data["action"]
         except json.JSONDecodeError:
             logger.error(_("Invalid JSON data received"))
+            return
+
+        # User end
+        match action:
+            case "verify_button":
+                self.handle_button_captcha(call)
+                return
+
+        # Admin end
+        if call.message.chat.id != self.group_id or call.message.message_thread_id is not None:
             return
         markup = types.InlineKeyboardMarkup()
         back_button = types.InlineKeyboardButton("⬅️" + _("Back"), callback_data=json.dumps({"action": "menu"}))
@@ -887,9 +994,43 @@ class TGBot:
                 self.edit_default_msg(call.message)
             case "empty_default_msg":
                 self.empty_default_msg(call.message)
+            case "captcha_settings":
+                self.captcha_settings_menu(call.message)
+            case "set_captcha":
+                self.set_captcha(call.message, data["value"])
+            case "broadcast_message":
+                self.broadcast_message(call.message)
             case _:
                 logger.error(_("Invalid action received") + action)
         return
+
+    def captcha_settings_menu(self, message: Message):
+        captcha_list = {
+            _("Disable Captcha"): "disable",
+            _("Math Captcha"): "math",
+            _("Button Captcha"): "button",
+        }
+        if not self.check_valid_chat(message):
+            return
+        markup = types.InlineKeyboardMarkup()
+        for key, value in captcha_list.items():
+            icon = "✅" + _("(Selected) ") if self.get_setting("captcha") == value else "⚪"
+            markup.add(types.InlineKeyboardButton(icon + key,
+                                                  callback_data=json.dumps({"action": "set_captcha", "value": value})))
+        markup.add(types.InlineKeyboardButton("⬅️" + _("Back"), callback_data=json.dumps({"action": "menu"})))
+        self.bot.edit_message_text(_("Captcha Settings") + "\n", message.chat.id, message.message_id,
+                                   reply_markup=markup)
+
+    def set_captcha(self, message: Message, value: str):
+        with sqlite3.connect(self.db_path) as db:
+            db_cursor = db.cursor()
+            db_cursor.execute("UPDATE settings SET value = ? WHERE key = 'captcha'", (value,))
+            db.commit()
+        markup = types.InlineKeyboardMarkup()
+        markup.add(types.InlineKeyboardButton("⬅️" + _("Back"), callback_data=json.dumps({"action": "menu"})))
+        self.cache.set("setting_captcha", value)
+        self.bot.edit_message_text(_("Captcha settings updated"), message.chat.id, message.message_id,
+                                   reply_markup=markup)
 
     def handle_edit(self, message: Message):
         if self.check_valid_chat(message):
@@ -946,6 +1087,88 @@ class TGBot:
         # Delete the current message
         self.bot.delete_message(chat_id=message.chat.id, message_id=message.reply_to_message.id)
         self.bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
+
+    def broadcast_message(self, message: Message):
+        if not self.check_valid_chat(message):
+            return
+        msg = self.bot.edit_message_text(text=_(
+            "Please send the content you want to broadcast.\nSend /cancel to cancel this operation."),
+            chat_id=self.group_id, message_id=message.message_id)
+        self.bot.register_next_step_handler(msg, self.handle_broadcast_message)
+
+    def handle_broadcast_message(self, message: Message):
+        if isinstance(message.text, str) and message.text.startswith("/cancel"):
+            self.bot.send_message(self.group_id, _("Operation cancelled"))
+            return
+        content_type = message.content_type
+        content = None
+        if content_type == "text":
+            content = message.text
+        elif content_type == "photo":
+            content = message.photo[-1].file_id
+        elif content_type == "document":
+            content = message.document.file_id
+        elif content_type == "video":
+            content = message.video.file_id
+        elif content_type == "sticker":
+            content = message.sticker.file_id
+        else:
+            self.bot.send_message(self.group_id, _("Unsupported message type"))
+            return
+
+        with sqlite3.connect(self.db_path) as db:
+            db_cursor = db.cursor()
+            db_cursor.execute("SELECT user_id, thread_id FROM topics")
+            users = db_cursor.fetchall()
+            for user in users:
+                user_id, thread_id = user
+                try:
+                    if content_type == "text":
+                        self.bot.send_message(user_id, content)
+                    elif content_type == "photo":
+                        self.bot.send_photo(user_id, content, caption=message.caption)
+                    elif content_type == "document":
+                        self.bot.send_document(user_id, content, caption=message.caption)
+                    elif content_type == "video":
+                        self.bot.send_video(user_id, content, caption=message.caption)
+                    elif content_type == "sticker":
+                        self.bot.send_sticker(user_id, content)
+                except ApiTelegramException as e:
+                    self.bot.send_message(self.group_id, _("Failed to send message to user {}").format(user_id))
+                    logger.error(_("Failed to send message to user {}").format(user_id))
+        self.bot.send_message(self.group_id, _("Broadcast message sent successfully."))
+
+    def handle_verify(self, message: Message):
+        if message.chat.id != self.group_id or message.message_thread_id is None:
+            return
+
+        command_parts = message.text.split()
+        if len(command_parts) != 2 or command_parts[1].lower() not in ["true", "false"]:
+            self.bot.send_message(message.chat.id, _("Invalid command format.\nUse /verify <true/false>"),
+                                  message_thread_id=message.message_thread_id)
+            return
+
+        verified_status = command_parts[1].lower() == "true"
+        with sqlite3.connect(self.db_path) as db:
+            db_cursor = db.cursor()
+            db_cursor.execute("SELECT user_id FROM topics WHERE thread_id = ?", (message.message_thread_id,))
+            user_id = db_cursor.fetchone()
+            if user_id is None:
+                self.bot.send_message(message.chat.id, _("User not found"), message_thread_id=message.message_thread_id)
+                return
+            user_id = user_id[0]
+            if verified_status:
+                db_cursor.execute("INSERT OR REPLACE INTO verified_users (user_id) VALUES (?)", (user_id,))
+                self.bot.send_message(message.chat.id, _("User verified successfully."),
+                                      message_thread_id=message.message_thread_id)
+                self.cache.set("verified_users", user_id, 300)
+            else:
+                db_cursor.execute("DELETE FROM verified_users WHERE user_id = ?", (user_id,))
+                self.bot.send_message(message.chat.id, _("User verification removed."),
+                                      message_thread_id=message.message_thread_id)
+                self.cache.delete("verified_users")
+
+            db.commit()
 
 
 if __name__ == "__main__":
