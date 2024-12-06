@@ -385,6 +385,34 @@ class TGBot:
                                 (message.reply_to_message.message_id, thread_id, True,))
                         if (result := curser.fetchone()) is not None:
                             reply_id = int(result[0])
+
+                    # 处理 entities
+                    if message.entities:
+                        new_entities = []
+                        for entity in message.entities:
+                            if entity.type in ['blockquote', 'pre'] and not getattr(entity, 'language', None):
+                                # 复制实体并添加默认语言
+                                entity_dict = entity.__dict__.copy()
+                                entity_dict['language'] = 'copy'  # 设置默认语言为 copy
+                                new_entity = types.MessageEntity(**entity_dict)
+                                new_entities.append(new_entity)
+                            else:
+                                new_entities.append(entity)
+                        message.entities = new_entities
+
+                    # 处理 caption_entities
+                    if message.caption_entities:
+                        new_caption_entities = []
+                        for entity in message.caption_entities:
+                            if entity.type in ['blockquote', 'pre'] and not getattr(entity, 'language', None):
+                                entity_dict = entity.__dict__.copy()
+                                entity_dict['language'] = 'copy'
+                                new_entity = types.MessageEntity(**entity_dict)
+                                new_caption_entities.append(new_entity)
+                            else:
+                                new_caption_entities.append(entity)
+                        message.caption_entities = new_caption_entities
+
                     match message.content_type:
                         case "photo":
                             fwd_msg = self.bot.send_photo(chat_id=self.group_id,
@@ -468,6 +496,34 @@ class TGBot:
                                 (message.reply_to_message.message_id, message.message_thread_id, False,))
                         if (result := curser.fetchone()) is not None:
                             reply_id = int(result[0])
+
+                    # 处理 entities
+                    if message.entities:
+                        new_entities = []
+                        for entity in message.entities:
+                            if entity.type in ['blockquote', 'pre'] and not getattr(entity, 'language', None):
+                                # 复制实体并添加默认语言
+                                entity_dict = entity.__dict__.copy()
+                                entity_dict['language'] = 'copy'  # 设置默认语言为 copy
+                                new_entity = types.MessageEntity(**entity_dict)
+                                new_entities.append(new_entity)
+                            else:
+                                new_entities.append(entity)
+                        message.entities = new_entities
+
+                    # 处理 caption_entities
+                    if message.caption_entities:
+                        new_caption_entities = []
+                        for entity in message.caption_entities:
+                            if entity.type in ['blockquote', 'pre'] and not getattr(entity, 'language', None):
+                                entity_dict = entity.__dict__.copy()
+                                entity_dict['language'] = 'copy'
+                                new_entity = types.MessageEntity(**entity_dict)
+                                new_caption_entities.append(new_entity)
+                            else:
+                                new_caption_entities.append(entity)
+                        message.caption_entities = new_caption_entities
+                        
                     match message.content_type:
                         case "photo":
                             fwd_msg = self.bot.send_photo(chat_id=user_id,
