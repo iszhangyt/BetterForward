@@ -82,7 +82,7 @@ class TGBot:
             os.makedirs(os.path.dirname(db_path))
         self.upgrade_db()
         self.bot.set_my_commands([
-            types.BotCommand("delete", _("Delete a message")),
+            # types.BotCommand("delete", _("Delete a message")), # 移除用户端的 delete 命令
             types.BotCommand("help", _("Show help")),
         ], scope=types.BotCommandScopeAllPrivateChats())
         self.bot.set_my_commands([
@@ -1070,6 +1070,12 @@ class TGBot:
     def delete_message(self, message: Message):
         if self.check_valid_chat(message):
             return
+        
+        # 检查是否为群组消息 - 私聊直接忽略
+        if message.chat.id != self.group_id:
+            return
+        # 检查是否为群组消息 - 私聊直接忽略
+
         if message.reply_to_message is None:
             self.bot.reply_to(message, _("Please reply to the message you want to delete"))
             return
