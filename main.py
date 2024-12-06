@@ -72,7 +72,7 @@ class TGBot:
         self.bot.message_handler(commands=["terminate"])(self.handle_terminate)
         self.bot.message_handler(commands=["delete"])(self.delete_message)
         self.bot.message_handler(commands=["verify"])(self.handle_verify)
-        self.bot.message_handler(func=lambda m: True, content_types=["photo", "text", "sticker", "video", "document"])(
+        self.bot.message_handler(func=lambda m: True, content_types=["photo", "text", "sticker", "video", "document", "animation"])(
             self.push_messages)
         self.bot.message_reaction_handler(func=lambda message: True)(self.handle_reaction)
         self.bot.callback_query_handler(func=lambda call: True)(self.callback_query)
@@ -391,6 +391,7 @@ class TGBot:
                                                           photo=message.photo[-1].file_id,
                                                           caption=message.caption,
                                                           caption_entities=message.caption_entities,  # 添加 caption_entities
+                                                          has_spoiler=message.has_spoiler,  # 添加剧透参数
                                                           message_thread_id=thread_id,
                                                           reply_to_message_id=reply_id)
                         case "text":
@@ -409,6 +410,7 @@ class TGBot:
                                                           video=message.video.file_id,
                                                           caption=message.caption,
                                                           caption_entities=message.caption_entities,  # 添加 caption_entities
+                                                          has_spoiler=message.has_spoiler,  # 视频剧透参数
                                                           message_thread_id=thread_id,
                                                           reply_to_message_id=reply_id)
                         case "document":
@@ -416,6 +418,13 @@ class TGBot:
                                                              document=message.document.file_id,
                                                              caption=message.caption,
                                                              caption_entities=message.caption_entities,  # 添加 caption_entities
+                                                             message_thread_id=thread_id,
+                                                             reply_to_message_id=reply_id)
+                        case "animation":  # 处理 GIF
+                            fwd_msg = self.bot.send_animation(chat_id=self.group_id,
+                                                             animation=message.animation.file_id,
+                                                             caption=message.caption,
+                                                             caption_entities=message.caption_entities,
                                                              message_thread_id=thread_id,
                                                              reply_to_message_id=reply_id)
                         case _:
@@ -465,6 +474,7 @@ class TGBot:
                                                           photo=message.photo[-1].file_id,
                                                           caption=message.caption,
                                                           caption_entities=message.caption_entities,  # 添加 caption_entities
+                                                          has_spoiler=message.has_spoiler,  # 添加剧透参数
                                                           reply_to_message_id=reply_id)
                         case "text":
                             fwd_msg = self.bot.send_message(chat_id=user_id,
@@ -480,12 +490,19 @@ class TGBot:
                                                           video=message.video.file_id,
                                                           caption=message.caption,
                                                           caption_entities=message.caption_entities,  # 添加 caption_entities
+                                                          has_spoiler=message.has_spoiler,  # 视频剧透参数
                                                           reply_to_message_id=reply_id)
                         case "document":
                             fwd_msg = self.bot.send_document(chat_id=user_id,
                                                              document=message.document.file_id,
                                                              caption=message.caption,
                                                              caption_entities=message.caption_entities,  # 添加 caption_entities
+                                                             reply_to_message_id=reply_id)
+                        case "animation":  # 处理 GIF
+                            fwd_msg = self.bot.send_animation(chat_id=user_id,
+                                                             animation=message.animation.file_id,
+                                                             caption=message.caption,
+                                                             caption_entities=message.caption_entities,
                                                              reply_to_message_id=reply_id)
                         case _:
                             logger.error(_("Unsupported message type") + message.content_type)
