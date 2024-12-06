@@ -390,11 +390,13 @@ class TGBot:
                             fwd_msg = self.bot.send_photo(chat_id=self.group_id,
                                                           photo=message.photo[-1].file_id,
                                                           caption=message.caption,
+                                                          caption_entities=message.caption_entities,  # 添加 caption_entities
                                                           message_thread_id=thread_id,
                                                           reply_to_message_id=reply_id)
                         case "text":
                             fwd_msg = self.bot.send_message(chat_id=self.group_id,
                                                             text=message.text,
+                                                            entities=message.entities,  # 添加 entities
                                                             message_thread_id=thread_id,
                                                             reply_to_message_id=reply_id)
                         case "sticker":
@@ -406,12 +408,14 @@ class TGBot:
                             fwd_msg = self.bot.send_video(chat_id=self.group_id,
                                                           video=message.video.file_id,
                                                           caption=message.caption,
+                                                          caption_entities=message.caption_entities,  # 添加 caption_entities
                                                           message_thread_id=thread_id,
                                                           reply_to_message_id=reply_id)
                         case "document":
                             fwd_msg = self.bot.send_document(chat_id=self.group_id,
                                                              document=message.document.file_id,
                                                              caption=message.caption,
+                                                             caption_entities=message.caption_entities,  # 添加 caption_entities
                                                              message_thread_id=thread_id,
                                                              reply_to_message_id=reply_id)
                         case _:
@@ -460,10 +464,12 @@ class TGBot:
                             fwd_msg = self.bot.send_photo(chat_id=user_id,
                                                           photo=message.photo[-1].file_id,
                                                           caption=message.caption,
+                                                          caption_entities=message.caption_entities,  # 添加 caption_entities
                                                           reply_to_message_id=reply_id)
                         case "text":
                             fwd_msg = self.bot.send_message(chat_id=user_id,
                                                             text=message.text,
+                                                            entities=message.entities,  # 添加 entities
                                                             reply_to_message_id=reply_id)
                         case "sticker":
                             fwd_msg = self.bot.send_sticker(chat_id=user_id,
@@ -473,11 +479,13 @@ class TGBot:
                             fwd_msg = self.bot.send_video(chat_id=user_id,
                                                           video=message.video.file_id,
                                                           caption=message.caption,
+                                                          caption_entities=message.caption_entities,  # 添加 caption_entities
                                                           reply_to_message_id=reply_id)
                         case "document":
                             fwd_msg = self.bot.send_document(chat_id=user_id,
                                                              document=message.document.file_id,
                                                              caption=message.caption,
+                                                             caption_entities=message.caption_entities,  # 添加 caption_entities
                                                              reply_to_message_id=reply_id)
                         case _:
                             logger.error(_("Unsupported message type") + message.content_type)
