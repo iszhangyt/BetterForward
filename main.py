@@ -391,7 +391,7 @@ class TGBot:
                                                           photo=message.photo[-1].file_id,
                                                           caption=message.caption,
                                                           caption_entities=message.caption_entities,  # 添加 caption_entities
-                                                          has_spoiler=message.has_spoiler,  # 添加剧透参数
+                                                          has_spoiler=message.has_media_spoiler if hasattr(message, 'has_media_spoiler') else None,  # 添加剧透参数
                                                           message_thread_id=thread_id,
                                                           reply_to_message_id=reply_id)
                         case "text":
@@ -410,7 +410,7 @@ class TGBot:
                                                           video=message.video.file_id,
                                                           caption=message.caption,
                                                           caption_entities=message.caption_entities,  # 添加 caption_entities
-                                                          has_spoiler=message.has_spoiler,  # 视频剧透参数
+                                                          has_spoiler=message.has_media_spoiler if hasattr(message, 'has_media_spoiler') else None,  # 视频剧透参数
                                                           message_thread_id=thread_id,
                                                           reply_to_message_id=reply_id)
                         case "document":
@@ -474,7 +474,7 @@ class TGBot:
                                                           photo=message.photo[-1].file_id,
                                                           caption=message.caption,
                                                           caption_entities=message.caption_entities,  # 添加 caption_entities
-                                                          has_spoiler=message.has_spoiler,  # 添加剧透参数
+                                                          has_spoiler=message.has_media_spoiler if hasattr(message, 'has_media_spoiler') else None,  # 添加剧透参数
                                                           reply_to_message_id=reply_id)
                         case "text":
                             fwd_msg = self.bot.send_message(chat_id=user_id,
@@ -490,7 +490,7 @@ class TGBot:
                                                           video=message.video.file_id,
                                                           caption=message.caption,
                                                           caption_entities=message.caption_entities,  # 添加 caption_entities
-                                                          has_spoiler=message.has_spoiler,  # 视频剧透参数
+                                                          has_spoiler=message.has_media_spoiler if hasattr(message, 'has_media_spoiler') else None,  # 视频剧透参数
                                                           reply_to_message_id=reply_id)
                         case "document":
                             fwd_msg = self.bot.send_document(chat_id=user_id,
