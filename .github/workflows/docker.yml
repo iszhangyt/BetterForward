@@ -12,16 +12,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Get tag
-        id: get_tag
-        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
-   
       - name: Build and push
         uses: mr-smithers-excellent/docker-build-push@v6
         with:
           image: ${{ secrets.DOCKER_USERNAME }}/betterforward
           registry: docker.io
-          tags: ${{ env.TAG }},latest
+          tags: latest
           multiPlatform: true
           platform: linux/amd64,linux/arm64,linux/arm/v7
           username: ${{ secrets.DOCKER_USERNAME }}
